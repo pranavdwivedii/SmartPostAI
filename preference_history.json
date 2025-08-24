@@ -1,0 +1,288 @@
+[
+    {
+        "timestamp": "2024-09-30T00:58:55.173452",
+        "preferences": {
+            "tone": "informative",
+            "topics": "tech"
+        }
+    },
+    {
+        "timestamp": "2024-09-30T00:59:33.001984",
+        "preferences": {
+            "tone": "informative",
+            "topics": "tech"
+        }
+    },
+    {
+        "timestamp": "2024-09-30T01:18:20.259569",
+        "preferences": {
+            "tone": "casual",
+            "topics": "lifestyle",
+            "language": "es"
+        }
+    },
+    {
+        "timestamp": "2024-09-30T01:24:15.696822",
+        "preferences": {
+            "tone": "casual",
+            "topics": "lifestyle",
+            "language": "fr"
+        }
+    },
+    {
+        "timestamp": "2024-09-30T10:48:10.952727",
+        "preferences": {
+            "tone": "Informative",
+            "topics": "tech",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2024-09-30T10:48:56.556094",
+        "preferences": {
+            "tone": "Informative",
+            "topics": "tech",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2024-10-05T11:13:46.159929",
+        "preferences": {
+            "tone": "casual",
+            "topics": "tech",
+            "language": "es"
+        }
+    },
+    {
+        "timestamp": "2024-10-05T11:14:46.051877",
+        "preferences": {
+            "tone": "professional",
+            "topics": "tech",
+            "language": "es"
+        }
+    },
+    {
+        "timestamp": "2024-10-05T11:21:06.095858",
+        "preferences": {
+            "tone": "informational",
+            "topics": "advertising",
+            "language": "fr"
+        }
+    },
+    {
+        "timestamp": "2024-10-05T11:23:52.295220",
+        "preferences": {
+            "tone": "informational",
+            "topics": "advertising",
+            "language": "ja"
+        }
+    },
+    {
+        "timestamp": "2024-10-05T11:28:04.216305",
+        "preferences": {
+            "tone": "casual",
+            "topics": "educational",
+            "language": "ru"
+        }
+    },
+    {
+        "timestamp": "2024-10-05T11:30:09.383566",
+        "preferences": {
+            "tone": "casual",
+            "topics": "educational",
+            "language": "ru"
+        }
+    },
+    {
+        "timestamp": "2024-10-05T11:45:16.205625",
+        "preferences": {
+            "tone": "casual",
+            "topics": "informational",
+            "language": "ja"
+        }
+    },
+    {
+        "timestamp": "2024-10-05T11:50:37.777777",
+        "preferences": {
+            "tone": "casual",
+            "topics": "informational",
+            "language": "ja"
+        }
+    },
+    {
+        "timestamp": "2024-10-05T11:53:04.112808",
+        "preferences": {
+            "tone": "casual",
+            "topics": "informational",
+            "language": "ko"
+        }
+    },
+    {
+        "timestamp": "2024-10-14T11:51:38.819065",
+        "preferences": {
+            "tone": "informational",
+            "topics": "medicinal",
+            "language": "de"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T12:20:17.758372",
+        "preferences": {
+            "tone": "casual",
+            "topics": "lifestyle",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T14:23:41.378473",
+        "preferences": {
+            "tone": "casual",
+            "topics": "lifestyle",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T14:23:43.348176",
+        "preferences": {
+            "tone": "casual",
+            "topics": "lifestyle",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T14:23:44.995783",
+        "preferences": {
+            "tone": "casual",
+            "topics": "lifestyle",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T14:26:52.316818",
+        "preferences": {
+            "tone": "casual",
+            "topics": "lifestyle",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T14:27:06.909047",
+        "preferences": {
+            "tone": "casual",
+            "topics": "fun",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T14:27:53.189750",
+        "preferences": {
+            "tone": "casual",
+            "topics": "fun",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T14:28:09.507539",
+        "preferences": {
+            "tone": "casual",
+            "topics": "fun",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T14:28:17.399763",
+        "preferences": {
+            "tone": "casual",
+            "topics": "fun",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T14:32:19.613909",
+        "preferences": {
+            "tone": "casual",
+            "topics": "fun",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T15:28:43.395840",
+        "preferences": {
+            "tone": "casual",
+            "topics": "fun",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T15:29:00.383462",
+        "preferences": {
+            "tone": "casual",
+            "topics": "fun",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T15:50:46.252641",
+        "preferences": {
+            "tone": "civil",
+            "topics": "informative",
+            "language": "ko"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T15:56:02.184922",
+        "preferences": {
+            "tone": "civil",
+            "topics": "informative",
+            "language": "ko"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T16:32:09.038637",
+        "preferences": {
+            "tone": "civil",
+            "topics": "informative",
+            "language": "ko"
+        }
+    },
+    {
+        "timestamp": "2025-03-18T16:34:18.282983",
+        "preferences": {
+            "tone": "civil",
+            "topics": "informative",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-05-26T17:50:25.132993",
+        "preferences": {
+            "tone": "casual",
+            "topics": "food",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-05-26T17:51:32.432667",
+        "preferences": {
+            "tone": "casual",
+            "topics": "food",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-05-27T14:34:27.180528",
+        "preferences": {
+            "tone": "professinal",
+            "topics": "food",
+            "language": "en"
+        }
+    },
+    {
+        "timestamp": "2025-05-28T15:36:55.812577",
+        "preferences": {
+            "tone": "professional",
+            "topics": "food related",
+            "language": "fr"
+        }
+    }
+]
