@@ -19,6 +19,10 @@ from dotenv import load_dotenv
 # ── Groq (text) ──────────────────────────────────────────────────────────────
 from groq import Groq
 
+# ── Gemini (images) — google-genai SDK v1.x ──────────────────────────────────
+from google import genai
+from google.genai import types as genai_types
+
 load_dotenv()
 from collections import Counter
 from datetime import datetime
@@ -29,9 +33,13 @@ nltk.download('stopwords')
 # ─────────────────────────────────────────────────────────────────────────────
 # Clients
 #   GROQ_API_KEY   → https://console.groq.com           (free)
+#   GEMINI_API_KEY → https://aistudio.google.com/apikey (free, ~500 imgs/day)
 # ─────────────────────────────────────────────────────────────────────────────
 groq_client      = Groq(api_key=os.getenv("GROQ_API_KEY"))
 GROQ_MODEL       = "llama-3.3-70b-versatile"        # best free Groq model
+
+gemini_client    = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+GEMINI_IMG_MODEL = "imagen-4.0-fast-generate-001"            # natively supported image model
 
 # Folder to save generated images so FastAPI can serve them
 IMAGE_DIR = "static/generated_images"
@@ -230,28 +238,39 @@ def generate_text(prompt: str, preferences: dict) -> str:
         raise HTTPException(status_code=503, detail=f"Text generation failed: {e}")
 
 
-# ── Image generation — Pollinations ──────────────────────────────────────────
+# ── Image generation — Gemini ──────────────────────────────────────────────────
 
-def generate_image(image_prompt: str, filename: str = "") -> str | None:
+def generate_image_gemini(image_prompt: str, filename: str) -> str | None:
     """
-    FREE image generation using Pollinations.ai — no API key needed.
-    Verifies the URL is reachable before returning it.
+    Native image generation using Imagen 4 via the google-genai SDK.
+    Returns a public URL path (e.g., /static/generated_images/post_xxx.png) on success.
     """
-    from urllib.parse import quote
     try:
-        clean_prompt = image_prompt.strip()[:200]
-        encoded_prompt = quote(clean_prompt, safe="")
-        seed = random.randint(1, 99999)
-        image_url = (
-            f"https://image.pollinations.ai/prompt/{encoded_prompt}"
-            f"?width=1024&height=512&seed={seed}&nologo=true&model=flux"
+        response = gemini_client.models.generate_images(
+            model=GEMINI_IMG_MODEL,
+            prompt=(
+                f"Generate a visually striking, photorealistic image suitable for a "
+                f"social media post. No text overlays. High quality. "
+                f"Theme: {image_prompt}"
+            ),
+            config=genai_types.GenerateImagesConfig(
+                number_of_images=1,
+                output_mime_type="image/png"
+            ),
         )
-        resp = requests.head(image_url, timeout=15, allow_redirects=True)
-        if resp.status_code == 200:
-            return image_url
+
+        if response.generated_images:
+            img_bytes = response.generated_images[0].image.image_bytes
+            filepath = os.path.join(IMAGE_DIR, filename)
+            with open(filepath, "wb") as fh:
+                fh.write(img_bytes)
+            return f"/static/generated_images/{filename}"
+
+        print("Gemini: no image part in response.")
         return None
+
     except Exception as e:
-        print(f"Image generation error: {e}")
+        print(f"Gemini image error: {e}")
         return None
 
 
@@ -293,12 +312,14 @@ def generate_social_media_post(article: dict, language: str, post_index: int) ->
     )
     img_prompt = generate_text(img_prompt_request, {"tone": "neutral", "topics": "visual"})
 
-    # 3. Generate image with Pollinations (free, no key needed)
-    image_url = generate_image(img_prompt)
+    # 3. Generate image with Gemini (free tier)
+    image_filename = f"post_{post_index}_{random.randint(1000, 9999)}.png"
+    image_url = generate_image_gemini(img_prompt, image_filename)
 
-    # 4. Graceful fallback to Picsum if Pollinations fails
+    # 4. Graceful fallback to Unsplash if Gemini fails
     if not image_url:
-        image_url = f"https://picsum.photos/seed/{post_index}/1024/512"
+        kw = "+".join(article["title"].split()[:4])
+        image_url = f"https://source.unsplash.com/1024x512/?{kw}"
 
     return {
         "post_content": post_content,

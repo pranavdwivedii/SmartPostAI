@@ -1,0 +1,19 @@
+# Environment variables
+.env
+
+# Virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Generated data files
+cleaned_content.txt
+articles.json
+posts.json
+user_preferences.json
+preference_history.json
+
+# React frontend
+frontend/node_modules/
+frontend/dist/
+

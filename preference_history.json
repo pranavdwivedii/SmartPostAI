@@ -284,5 +284,29 @@
             "topics": "food related",
             "language": "fr"
         }
+    },
+    {
+        "timestamp": "2026-04-05T20:43:11.333770",
+        "preferences": {
+            "tone": "professional",
+            "topics": "lifestyle",
+            "language": "pt"
+        }
+    },
+    {
+        "timestamp": "2026-04-05T20:50:15.283953",
+        "preferences": {
+            "tone": "professional",
+            "topics": "lifestyle",
+            "language": "pt"
+        }
+    },
+    {
+        "timestamp": "2026-04-05T20:52:18.008420",
+        "preferences": {
+            "tone": "professional",
+            "topics": "lifestyle",
+            "language": "pt"
+        }
     }
 ]
