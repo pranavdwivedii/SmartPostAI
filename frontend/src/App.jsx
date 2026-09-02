@@ -472,24 +472,34 @@ export default function SmartPostAI() {
         body: JSON.stringify({ url: url.trim(), language }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || "Server error");
       }
-      setStatus({ type: "loading", message: "Fetching generated posts..." });
+      
+      const data = await res.json();
+      let postsData = data.posts || [];
+      let articlesData = data.articles || [];
 
-      const postsRes = await fetch("/posts.json");
-      const postsData = await postsRes.json();
+      if (!postsData.length) {
+        try {
+          const postsRes = await fetch("/posts.json");
+          if (postsRes.ok) postsData = await postsRes.json();
+        } catch {}
+      }
+
+      if (!articlesData.length) {
+        try {
+          const artRes = await fetch("/articles.json");
+          if (artRes.ok) articlesData = await artRes.json();
+        } catch {}
+      }
+
       setPosts(postsData);
+      setArticles(articlesData);
 
-      // Try to also fetch articles.json if server exposes it
-      try {
-        const artRes = await fetch("/articles.json");
-        if (artRes.ok) setArticles(await artRes.json());
-      } catch {}
-
-      setStatus({ type: "success", message: `Generated ${postsData.length} posts successfully.` });
+      setStatus({ type: "success", message: data.message || `Generated ${postsData.length} posts successfully.` });
       showToast(`✓ ${postsData.length} posts generated`);
-      setActiveTab("posts");
+      setActiveTab("articles");
     } catch (e) {
       setStatus({ type: "error", message: e.message });
       showToast("Error: " + e.message);
@@ -546,7 +556,7 @@ export default function SmartPostAI() {
             SmartPost<span style={{ color: "var(--accent)", fontStyle: "italic" }}>AI</span>
           </div>
           <nav className="nav-tabs">
-            {["generate", "posts", "articles", "preferences"].map(tab => (
+            {["generate", "articles", "preferences", "posts"].map(tab => (
               <button
                 key={tab}
                 className={`nav-tab ${activeTab === tab ? "active" : ""}`}
@@ -556,7 +566,7 @@ export default function SmartPostAI() {
               </button>
             ))}
           </nav>
-          <div className="badge">v2.0 · GROQ</div>
+          <div className="badge">v2.0 · GEMINI</div>
         </header>
 
         <main className="main">
@@ -658,6 +668,33 @@ export default function SmartPostAI() {
                 <div className="results-title">Social Media Posts</div>
                 {posts.length > 0 && <span className="count-badge">{posts.length} posts</span>}
               </div>
+
+              {/* Disclaimer & GitHub Setup Banner */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "0.75rem",
+                  background: "rgba(124, 106, 255, 0.08)",
+                  border: "1px solid rgba(124, 106, 255, 0.22)",
+                  borderRadius: "10px",
+                  padding: "0.85rem 1.2rem",
+                  marginBottom: "1.5rem",
+                  fontSize: "0.75rem",
+                  color: "#c8c6ff",
+                  lineHeight: "1.5",
+                  letterSpacing: "0.02em",
+                }}
+              >
+                <span style={{ fontSize: "1.1rem", marginTop: "1px" }}>⚡</span>
+                <div>
+                  <strong>Pro Tip:</strong> For higher dedicated quotas and enhanced image generation, clone the repo from GitHub and add your personal key in <code>.env</code>:
+                  <div style={{ marginTop: "5px", color: "var(--accent3)", fontFamily: "'DM Mono', monospace", background: "rgba(0,0,0,0.25)", padding: "4px 8px", borderRadius: "6px", display: "inline-block" }}>
+                    <code>GEMINI_API_KEY=your_api_key_here</code>
+                  </div>
+                </div>
+              </div>
+
               {posts.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-state-icon">◎</div>
@@ -668,9 +705,19 @@ export default function SmartPostAI() {
                   {posts.map((post, i) => (
                     <div key={i} className="post-card" style={{ animationDelay: `${i * 0.07}s` }}>
                       {post.image_url ? (
-                        <img src={post.image_url} alt="" className="post-img" style={{ width: "100%", height: "160px", objectFit: "cover" }} />
+                        <img
+                          src={post.image_url}
+                          alt="Post visual"
+                          className="post-img"
+                          style={{ width: "100%", height: "170px", objectFit: "cover", display: "block" }}
+                          onError={(e) => {
+                            e.currentTarget.onerror = null;
+                            e.currentTarget.src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80";
+                          }}
+                          loading="lazy"
+                        />
                       ) : (
-                        <div className="post-img">NO IMAGE</div>
+                        <div className="post-img" style={{ height: "170px", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--surface2)", color: "var(--muted)" }}>NO IMAGE</div>
                       )}
                       <div className="post-body">
                         <div className="post-content">{post.post_content}</div>

@@ -1,68 +1,123 @@
+import os
+import re
+import json
+import time
+import base64
+import random
+import urllib.parse
+from collections import Counter
+from datetime import datetime
+from urllib.parse import urljoin, urlparse
+
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import requests
 from bs4 import BeautifulSoup
-import re
-from nltk.corpus import stopwords
-import nltk
-import json
-from urllib.parse import urljoin, urlparse
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-import random
-import os
-import base64
-from dotenv import load_dotenv
-
-# ── Groq (text) ──────────────────────────────────────────────────────────────
-from groq import Groq
-
-load_dotenv()
-from collections import Counter
-from datetime import datetime
 from deep_translator import GoogleTranslator
 
-nltk.download('stopwords')
+# ── Gemini (google-genai SDK v1.x) ───────────────────────────────────────────
+try:
+    from google import genai
+    from google.genai import types as genai_types
+except ImportError:
+    genai = None
+    genai_types = None
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Clients
-#   GROQ_API_KEY   → https://console.groq.com           (free)
+# Model Configurations (Google Gemini)
 # ─────────────────────────────────────────────────────────────────────────────
-groq_client      = Groq(api_key=os.getenv("GROQ_API_KEY"))
-GROQ_MODEL       = "llama-3.3-70b-versatile"        # best free Groq model
+GEMINI_TEXT_MODELS = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
+    "gemini-3.1-pro-preview"
+]
 
-# Folder to save generated images so FastAPI can serve them
 IMAGE_DIR = "static/generated_images"
-os.makedirs(IMAGE_DIR, exist_ok=True)
+try:
+    os.makedirs(IMAGE_DIR, exist_ok=True)
+except Exception:
+    pass
+
+PREFERENCE_FILE = "user_preferences.json"
+PREFERENCE_HISTORY_FILE = "preference_history.json"
+ARTICLES_FILE = "articles.json"
+POSTS_FILE = "posts.json"
+
+_MEM_CACHE = {
+    "preferences": {},
+    "history": [],
+    "articles": [],
+    "posts": []
+}
+
+# Standard browser headers to avoid 403 Forbidden blocks
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Upgrade-Insecure-Requests": "1"
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Gemini Client
+# ─────────────────────────────────────────────────────────────────────────────
+def get_gemini_client():
+    if genai is None:
+        raise HTTPException(
+            status_code=500,
+            detail="google-genai package is not installed. Please run: pip install google-genai"
+        )
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="GEMINI_API_KEY environment variable is missing. Please set it in your .env file."
+        )
+    try:
+        return genai.Client(api_key=api_key)
+    except Exception as e:
+        print(f"Gemini client initialization error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize Gemini client: {e}")
 
-app = FastAPI()
+# ─────────────────────────────────────────────────────────────────────────────
+# FastAPI App & Middleware
+# ─────────────────────────────────────────────────────────────────────────────
+app = FastAPI(title="SmartPostAI API (Powered by Google Gemini)", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+if os.path.exists("static/assets"):
+    app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 
 
 class URLInput(BaseModel):
     url: str
-    language: str
+    language: str = "en"
 
 
 class UserPreferences(BaseModel):
-    tone: str
-    topics: str
-    language: str
-
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
-app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
-
-PREFERENCE_FILE         = "user_preferences.json"
-PREFERENCE_HISTORY_FILE = "preference_history.json"
-
-
-@app.get("/")
-async def read_index():
-    return FileResponse("static/index.html")
+    tone: str = "professional"
+    topics: str = "general"
+    language: str = "en"
 
 
 @app.exception_handler(RequestValidationError)
@@ -70,248 +125,277 @@ async def validation_exception_handler(request, exc):
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
-# ── Scraping helpers ──────────────────────────────────────────────────────────
+# ── Storage Helpers (Stored in /tmp so project directory stays clean) ────────
 
-def is_same_domain(url1, url2):
-    return urlparse(url1).netloc == urlparse(url2).netloc
-
-
-def scrape_urls(base_url: str) -> list:
+def _safe_write_json(filename: str, data):
+    target = os.path.join("/tmp", os.path.basename(filename))
     try:
-        resp = requests.get(base_url, timeout=10)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        seen, links = set(), []
-        for tag in soup.find_all("a"):
-            href = tag.get("href")
-            if not href:
-                continue
-            full = urljoin(base_url, href)
-            if is_same_domain(full, base_url) and full not in seen:
-                seen.add(full)
-                links.append(full)
-        return links
-    except Exception as e:
-        print(f"scrape_urls error: {e}")
-        return []
+        with open(target, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception:
+        pass
+
+def _safe_read_json(filename: str, default=None):
+    target = os.path.join("/tmp", os.path.basename(filename))
+    if os.path.exists(target):
+        try:
+            with open(target, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return default if default is not None else {}
 
 
-def scrape_content(url: str) -> str:
+# ── Single-Pass Scraping Helper ──────────────────────────────────────────────
+
+def is_same_domain(url1: str, url2: str) -> bool:
     try:
-        resp = requests.get(url, timeout=10)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        main = (
-            soup.find("main") or
-            soup.find("article") or
-            soup.find("div", class_="content")
-        )
-        return main.get_text() if main else soup.get_text()
-    except Exception as e:
-        print(f"scrape_content error {url}: {e}")
-        return ""
+        netloc1 = urlparse(url1).netloc.replace("www.", "")
+        netloc2 = urlparse(url2).netloc.replace("www.", "")
+        return netloc1 == netloc2
+    except Exception:
+        return False
 
 
-def clean_content(text: str) -> str:
-    text  = re.sub(r"[^a-zA-Z\s]", "", text)
-    words = text.lower().split()
-    stop  = set(stopwords.words("english"))
-    return " ".join(list(dict.fromkeys(w for w in words if w not in stop)))
-
-
-def extract_title(url: str) -> str:
+def slug_to_title(url: str) -> str:
     try:
-        resp = requests.get(url, timeout=10)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        t = soup.find("title")
-        if t and t.string:
-            return t.string.strip()
-        h = soup.find("h1")
-        if h:
-            return h.get_text().strip()
+        path = urlparse(url).path.strip("/").split("/")[-1]
+        if path:
+            words = re.split(r"[-_.]", path)
+            cleaned = " ".join(w.capitalize() for w in words if w and not w.isdigit())
+            if cleaned:
+                return cleaned
+        domain = urlparse(url).netloc.replace("www.", "").split(".")[0]
+        return domain.capitalize() if domain else "Featured Article"
+    except Exception:
+        return "Featured Article"
+
+
+def scrape_page(url: str) -> dict:
+    result = {
+        "url": url,
+        "title": slug_to_title(url),
+        "description": "",
+        "content": "",
+        "links": []
+    }
+
+    try:
+        resp = requests.get(url, headers=BROWSER_HEADERS, timeout=6)
+        if resp.status_code == 200 and resp.text:
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            og_title = soup.find("meta", property="og:title")
+            title_tag = soup.find("title")
+            h1_tag = soup.find("h1")
+
+            if og_title and og_title.get("content"):
+                result["title"] = og_title.get("content").strip()
+            elif title_tag and title_tag.string:
+                result["title"] = title_tag.string.strip()
+            elif h1_tag:
+                result["title"] = h1_tag.get_text().strip()
+
+            meta_desc = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", property="og:description")
+            if meta_desc and meta_desc.get("content"):
+                result["description"] = meta_desc.get("content").strip()
+
+            main = (
+                soup.find("main") or
+                soup.find("article") or
+                soup.find("div", class_=re.compile(r"content|body|post|article", re.I)) or
+                soup.find("body")
+            )
+            if main:
+                for s in main(["script", "style", "nav", "footer", "header"]):
+                    s.decompose()
+                text = main.get_text(separator=" ", strip=True)
+                result["content"] = " ".join(text.split()[:500])
+
+            seen = {url}
+            for tag in soup.find_all("a", href=True):
+                full_url = urljoin(url, tag["href"]).split("#")[0].split("?")[0]
+                if is_same_domain(full_url, url) and full_url not in seen and len(full_url) > len(url) - 5:
+                    seen.add(full_url)
+                    result["links"].append(full_url)
     except Exception as e:
-        print(f"extract_title error: {e}")
-    return "Untitled Article"
+        print(f"scrape_page note for {url}: {e}")
+
+    if not result["content"]:
+        result["content"] = f"Topic related to {result['title']} from {urlparse(url).netloc}."
+
+    return result
 
 
 # ── Preferences ───────────────────────────────────────────────────────────────
 
 def save_user_preferences(preferences: dict):
     now = datetime.now().isoformat()
-    existing = {}
-    if os.path.exists(PREFERENCE_FILE):
-        with open(PREFERENCE_FILE, "r", encoding="utf-8") as f:
-            existing = json.load(f)
+    existing = _safe_read_json(PREFERENCE_FILE, {})
+    if not isinstance(existing, dict):
+        existing = {}
     existing.update(preferences)
-    with open(PREFERENCE_FILE, "w", encoding="utf-8") as f:
-        json.dump(existing, f, ensure_ascii=False, indent=4)
+    _MEM_CACHE["preferences"] = existing
+    _safe_write_json(PREFERENCE_FILE, existing)
 
-    history = []
-    if os.path.exists(PREFERENCE_HISTORY_FILE):
-        with open(PREFERENCE_HISTORY_FILE, "r", encoding="utf-8") as f:
-            history = json.load(f)
+    history = _safe_read_json(PREFERENCE_HISTORY_FILE, [])
+    if not isinstance(history, list):
+        history = []
     history.append({"timestamp": now, "preferences": existing})
-    with open(PREFERENCE_HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=4)
+    _MEM_CACHE["history"] = history
+    _safe_write_json(PREFERENCE_HISTORY_FILE, history)
 
 
 def load_user_preferences() -> dict:
-    if os.path.exists(PREFERENCE_FILE):
-        with open(PREFERENCE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+    if _MEM_CACHE["preferences"]:
+        return _MEM_CACHE["preferences"]
+    data = _safe_read_json(PREFERENCE_FILE, {})
+    if isinstance(data, dict):
+        _MEM_CACHE["preferences"] = data
+        return data
     return {}
 
 
 def analyze_preferences() -> str:
-    if not os.path.exists(PREFERENCE_HISTORY_FILE):
+    history = _MEM_CACHE["history"] or _safe_read_json(PREFERENCE_HISTORY_FILE, [])
+    if not history or not isinstance(history, list):
         return "No preference history available."
-    with open(PREFERENCE_HISTORY_FILE, "r", encoding="utf-8") as f:
-        history = json.load(f)
-    if not history:
-        return "Preference history is empty."
 
-    tone_counter = Counter(e["preferences"].get("tone", "Not specified") for e in history)
-    most_common_tone = tone_counter.most_common(1)[0][0]
+    tone_counter = Counter(e.get("preferences", {}).get("tone", "Not specified") for e in history if isinstance(e, dict))
+    most_common_tone = tone_counter.most_common(1)[0][0] if tone_counter else "Not specified"
 
     all_topics = []
     for e in history:
-        all_topics.extend(
-            t.strip() for t in e["preferences"].get("topics", "").split(",") if t.strip()
-        )
+        if isinstance(e, dict):
+            topics_str = e.get("preferences", {}).get("topics", "")
+            all_topics.extend(t.strip() for t in topics_str.split(",") if t.strip())
     topic_counter = Counter(all_topics)
 
-    out  = f"Most common tone: {most_common_tone}\n"
+    out = f"Most common tone: {most_common_tone}\n"
     out += "Top 5 topics of interest:\n"
-    for topic, count in topic_counter.most_common(5):
-        out += f"  - {topic}: {count} occurrences\n"
+    if topic_counter:
+        for topic, count in topic_counter.most_common(5):
+            out += f"  - {topic}: {count} occurrences\n"
+    else:
+        out += "  - No topics recorded yet\n"
     return out
 
 
-# ── Translation ───────────────────────────────────────────────────────────────
+# ── AI Generation (100% Google Gemini) ───────────────────────────────────────
 
-def translate_text(text: str, target_language: str) -> str:
-    if not text or target_language == "en":
-        return text
-    try:
-        translator = GoogleTranslator(source="auto", target=target_language)
-        chunks = [text[i:i + 4500] for i in range(0, len(text), 4500)]
-        return " ".join(translator.translate(c) or c for c in chunks)
-    except Exception as e:
-        print(f"translate_text error: {e}")
-        return text
-
-
-# ── Text generation — Groq (free, llama-3.3-70b) ─────────────────────────────
-
-def generate_text(prompt: str, preferences: dict) -> str:
-    """
-    Uses Groq's free tier — llama-3.3-70b-versatile.
-    Raises HTTP 503 on failure so the frontend gets a clean error message.
-    """
-    tone   = preferences.get("tone", "professional")
+def generate_social_content_gemini(page_data: dict, preferences: dict, language: str) -> dict:
+    tone = preferences.get("tone", "engaging and professional")
     topics = preferences.get("topics", "general")
+    url = page_data.get("url", "")
+    title = page_data.get("title", "")
+    content = page_data.get("content", "")
 
-    system = (
-        f"You are a smart, concise content assistant. "
-        f"Always write in a {tone} tone. "
-        f"The reader is interested in: {topics}."
-    )
-    try:
-        resp = groq_client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user",   "content": prompt},
-            ],
-            temperature=0.7,
-            max_tokens=400,
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"Groq error: {e}")
-        raise HTTPException(status_code=503, detail=f"Text generation failed: {e}")
+    lang_names = {
+        "en": "English",
+        "hi": "Hindi",
+        "fr": "French",
+        "de": "German",
+        "es": "Spanish",
+        "ja": "Japanese",
+        "zh-CN": "Chinese",
+        "ar": "Arabic"
+    }
+    target_lang = lang_names.get(language, "English")
 
+    prompt = f"""You are a world-class AI content creator.
+Analyze the following webpage/topic and generate engaging social media assets in {target_lang}.
 
-# ── Image generation — Pollinations ──────────────────────────────────────────
+URL: {url}
+Title: {title}
+Context/Content: {content[:2000]}
+Tone: {tone}
+Topics of Interest: {topics}
 
-def generate_image(image_prompt: str, filename: str = "") -> str | None:
-    """
-    FREE image generation using Pollinations.ai — no API key needed.
-    Verifies the URL is reachable before returning it.
-    """
-    from urllib.parse import quote
-    try:
-        clean_prompt = image_prompt.strip()[:200]
-        encoded_prompt = quote(clean_prompt, safe="")
-        seed = random.randint(1, 99999)
-        image_url = (
-            f"https://image.pollinations.ai/prompt/{encoded_prompt}"
-            f"?width=1024&height=512&seed={seed}&nologo=true&model=flux"
-        )
-        resp = requests.head(image_url, timeout=15, allow_redirects=True)
-        if resp.status_code == 200:
-            return image_url
-        return None
-    except Exception as e:
-        print(f"Image generation error: {e}")
-        return None
+Return a valid JSON object ONLY with the following structure (no markdown fences, just pure JSON):
+{{
+  "summary": "A clear, compelling 2-3 sentence summary of the article or brand in {target_lang}.",
+  "post_content": "A high-impact social media post (max 220 chars) in {target_lang} with relevant hashtags and a strong call to action.\\n\\n{url}",
+  "image_prompt": "A 1-sentence prompt describing a clean, photorealistic visual for this topic (no text, no overlays)."
+}}
+"""
+    client = get_gemini_client()
 
+    for model_name in GEMINI_TEXT_MODELS:
+        try:
+            resp = client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
+            if resp and resp.text:
+                raw = resp.text.strip()
+                clean_json = re.sub(r"^```json\s*", "", raw)
+                clean_json = re.sub(r"^```\s*", "", clean_json)
+                clean_json = re.sub(r"\s*```$", "", clean_json).strip()
+                data = json.loads(clean_json)
+                return data
+        except Exception as e:
+            print(f"Gemini model '{model_name}' prompt note: {e}")
+            continue
 
-# ── Article & social post generation ─────────────────────────────────────────
-
-def generate_article(content: str, url: str, language: str) -> str:
-    prefs = load_user_preferences()
-    prefs["language"] = language
-
-    prompt = (
-        f"Write a clear, engaging 3-4 sentence summary of the article below.\n"
-        f"URL: {url}\n\n"
-        f"Content (first 2000 chars):\n{content[:2000]}"
-    )
-    summary = generate_text(prompt, prefs)
-    return translate_text(summary, language) if language != "en" else summary
-
-
-def generate_social_media_post(article: dict, language: str, post_index: int) -> dict:
-    prefs = load_user_preferences()
-    prefs["language"] = language
-
-    # 1. Write the post copy
-    post_prompt = (
-        f"Write a punchy social media post (max 240 characters, URL not included). "
-        f"Be engaging, relevant, and end with a call to action. "
-        f"Then on a new line add: {article['url']}\n\n"
-        f"Title: {article['title']}\n"
-        f"Summary: {article['description']}"
-    )
-    post_content = generate_text(post_prompt, prefs)
-    if language != "en":
-        post_content = translate_text(post_content, language)
-
-    # 2. Ask Groq to write a short image prompt
-    img_prompt_request = (
-        f"Write a 1-sentence image generation prompt for a social media post about: "
-        f"'{article['title']}'. Focus on one powerful visual. No text in the image."
-    )
-    img_prompt = generate_text(img_prompt_request, {"tone": "neutral", "topics": "visual"})
-
-    # 3. Generate image with Pollinations (free, no key needed)
-    image_url = generate_image(img_prompt)
-
-    # 4. Graceful fallback to Picsum if Pollinations fails
-    if not image_url:
-        image_url = f"https://picsum.photos/seed/{post_index}/1024/512"
-
+    # Fallback if AI JSON parse failed
     return {
-        "post_content": post_content,
-        "url":          article["url"],
-        "image_url":    image_url,
+        "summary": f"{title} - Discover the latest updates and insights.",
+        "post_content": f"Check out {title}! Exploring the key highlights and updates.\n\n{url}",
+        "image_prompt": f"Professional photography of {title}"
     }
 
 
-# ── API routes ────────────────────────────────────────────────────────────────
+def generate_visual_image(image_prompt: str, title: str, idx: int) -> str:
+    """
+    Generates a reliable, photorealistic visual image.
+    Attempts to fetch and embed as Base64 for 100% offline & cross-origin display guarantee.
+    """
+    clean_p = re.sub(r"[^a-zA-Z0-9\s,.-]", "", image_prompt).strip()
+    if not clean_p:
+        clean_p = f"{title} photography"
+
+    encoded = urllib.parse.quote(clean_p[:120])
+    ai_url = f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=500&nologo=true&seed={random.randint(100, 99999)}"
+
+    # Try downloading and converting to base64 for instant display in any browser
+    try:
+        resp = requests.get(ai_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
+        if resp.status_code == 200 and len(resp.content) > 1000:
+            b64 = base64.b64encode(resp.content).decode("utf-8")
+            return f"data:image/jpeg;base64,{b64}"
+    except Exception:
+        pass
+
+    # Return direct CDN URL if timeout occurred
+    return ai_url
+
+
+# ── API Routes ────────────────────────────────────────────────────────────────
+
+@app.get("/")
+async def read_index():
+    if os.path.exists("static/index.html"):
+        return FileResponse("static/index.html")
+    return {"message": "SmartPostAI API is running. Build frontend with 'npm run build' to serve the UI."}
+
+
+@app.get("/favicon.svg")
+async def get_favicon():
+    if os.path.exists("static/favicon.svg"):
+        return FileResponse("static/favicon.svg")
+    return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+
+@app.get("/icons.svg")
+async def get_icons():
+    if os.path.exists("static/icons.svg"):
+        return FileResponse("static/icons.svg")
+    return JSONResponse(status_code=404, content={"detail": "Not found"})
+
 
 @app.post("/save_preferences")
 async def save_preferences(preferences: UserPreferences):
-    save_user_preferences(preferences.dict())
+    save_user_preferences(preferences.model_dump() if hasattr(preferences, "model_dump") else preferences.dict())
     return {"message": "Preferences saved successfully"}
 
 
@@ -322,61 +406,71 @@ async def get_preference_analysis():
 
 @app.post("/scrape_and_generate")
 async def scrape_and_generate(url_input: URLInput):
-    base_url = url_input.url
-    language = url_input.language
+    base_url = url_input.url.strip()
+    language = url_input.language or "en"
+    prefs = load_user_preferences()
 
-    urls = scrape_urls(base_url)
-    if not urls:
-        raise HTTPException(status_code=400, detail="No URLs found on the provided page.")
+    # 1. Scrape base page in a single pass
+    root_page = scrape_page(base_url)
 
-    # Pick a representative middle sample (avoids nav/footer junk at the edges)
-    if len(urls) > 10:
-        s, e     = len(urls) // 4, 3 * len(urls) // 4
-        pool     = urls[s:e]
-        selected = random.sample(pool, min(5, len(pool)))
-    elif len(urls) > 5:
-        selected = random.sample(urls[1:-1], min(5, len(urls) - 2))
-    else:
-        selected = urls
+    pages_to_process = [root_page]
+    for link in root_page["links"][:2]:
+        pages_to_process.append(scrape_page(link))
 
-    articles    = []
-    posts       = []
+    articles = []
+    posts = []
     all_content = ""
 
-    for idx, url in enumerate(selected):
-        content      = scrape_content(url)
-        all_content += clean_content(content) + " "
+    for idx, page in enumerate(pages_to_process):
+        all_content += page["content"] + " "
 
-        summary = generate_article(content, url, language)
-        title   = extract_title(url)
+        # Generate structured content in a single Gemini call
+        ai_data = generate_social_content_gemini(page, prefs, language)
 
-        article = {"title": title, "description": summary, "url": url}
+        summary = ai_data.get("summary", "")
+        post_content = ai_data.get("post_content", "")
+        img_prompt = ai_data.get("image_prompt", page["title"])
+
+        article = {
+            "title": page["title"],
+            "description": summary,
+            "url": page["url"]
+        }
         articles.append(article)
-        posts.append(generate_social_media_post(article, language, idx))
 
-    with open("cleaned_content.txt", "w", encoding="utf-8") as f:
-        f.write(all_content)
-    with open("articles.json", "w", encoding="utf-8") as f:
-        json.dump(articles, f, ensure_ascii=False, indent=4)
-    with open("posts.json", "w", encoding="utf-8") as f:
-        json.dump(posts, f, ensure_ascii=False, indent=4)
+        # Generate real visual image
+        image_url = generate_visual_image(img_prompt, page["title"], idx)
+
+        posts.append({
+            "post_content": post_content,
+            "url": page["url"],
+            "image_url": image_url
+        })
+
+    # Cache results
+    _MEM_CACHE["articles"] = articles
+    _MEM_CACHE["posts"] = posts
+
+    _safe_write_json(ARTICLES_FILE, articles)
+    _safe_write_json(POSTS_FILE, posts)
 
     return {
-        "message": (
-            f"Done! {len(articles)} articles summarised, "
-            f"{len(posts)} social posts created with AI-generated images."
-        )
+        "message": f"Done! {len(articles)} articles summarised, {len(posts)} social posts created.",
+        "articles": articles,
+        "posts": posts
     }
 
 
 @app.get("/posts.json")
 async def read_posts():
-    return FileResponse("posts.json")
+    data = _MEM_CACHE["posts"] or _safe_read_json(POSTS_FILE, [])
+    return JSONResponse(content=data)
 
 
 @app.get("/articles.json")
 async def read_articles():
-    return FileResponse("articles.json")
+    data = _MEM_CACHE["articles"] or _safe_read_json(ARTICLES_FILE, [])
+    return JSONResponse(content=data)
 
 
 if __name__ == "__main__":

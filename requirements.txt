@@ -5,6 +5,5 @@ beautifulsoup4==4.12.3
 nltk==3.8.1
 pydantic==2.12.5
 deep-translator==1.11.4
-groq
 google-genai
 python-dotenv

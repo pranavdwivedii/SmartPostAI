@@ -1,0 +1,30 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "static",
+  "rewrites": [
+    {
+      "source": "/scrape_and_generate",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/save_preferences",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/analyze_preferences",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/posts.json",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/articles.json",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
+    }
+  ]
+}
