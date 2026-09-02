@@ -106,6 +106,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def vercel_path_rewrite_middleware(request, call_next):
+    # If Vercel rewrote the path to /api/index.py, restore original path from x-matched-path
+    matched_path = request.headers.get("x-matched-path") or request.headers.get("x-forwarded-uri")
+    if matched_path and request.url.path in ["/api/index.py", "/api/index", "/api"]:
+        request.scope["path"] = matched_path.split("?")[0]
+    return await call_next(request)
+
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 if os.path.exists("static/assets"):
@@ -397,17 +405,21 @@ async def get_icons():
 
 
 @app.post("/save_preferences")
+@app.post("/api/save_preferences")
 async def save_preferences(preferences: UserPreferences):
     save_user_preferences(preferences.model_dump() if hasattr(preferences, "model_dump") else preferences.dict())
     return {"message": "Preferences saved successfully"}
 
 
 @app.get("/analyze_preferences")
+@app.get("/api/analyze_preferences")
 async def get_preference_analysis():
     return {"analysis": analyze_preferences()}
 
 
 @app.post("/scrape_and_generate")
+@app.post("/api/scrape_and_generate")
+@app.post("/api/index.py")
 async def scrape_and_generate(url_input: URLInput):
     base_url = url_input.url.strip()
     language = url_input.language or "en"
@@ -462,12 +474,14 @@ async def scrape_and_generate(url_input: URLInput):
 
 
 @app.get("/posts.json")
+@app.get("/api/posts.json")
 async def read_posts():
     data = _MEM_CACHE["posts"] or _safe_read_json(POSTS_FILE, [])
     return JSONResponse(content=data)
 
 
 @app.get("/articles.json")
+@app.get("/api/articles.json")
 async def read_articles():
     data = _MEM_CACHE["articles"] or _safe_read_json(ARTICLES_FILE, [])
     return JSONResponse(content=data)
