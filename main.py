@@ -9,8 +9,11 @@ from collections import Counter
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
 
-from dotenv import load_dotenv
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
