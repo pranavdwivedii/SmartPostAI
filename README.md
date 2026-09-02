@@ -58,7 +58,7 @@ npm run build
 
 # 2. Start FastAPI server
 source venv/bin/activate
-uvicorn main:app --reload --port 8000
+uvicorn api.index:app --reload --port 8000
 ```
 Open **`http://localhost:8000`** in your browser.
 
@@ -70,7 +70,7 @@ Run backend and frontend in separate terminals:
 **Terminal 1 (Backend):**
 ```bash
 source venv/bin/activate
-uvicorn main:app --reload --port 8000
+uvicorn api.index:app --reload --port 8000
 ```
 
 **Terminal 2 (Frontend):**
